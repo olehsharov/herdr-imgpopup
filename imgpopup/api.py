@@ -18,10 +18,20 @@ class HerdrError(Exception):
     """A Herdr API call returned an error body."""
 
 
+DEFAULT_SOCKET = "~/.config/herdr/herdr.sock"
+
+
 def _socket_path(sock_path: Optional[str]) -> str:
+    """Explicit arg, then the env Herdr injects into its panes, then Herdr's
+    default socket location - so `img` works from a bare ssh session that was
+    never spawned by Herdr (which is what a kitty open_action produces)."""
     path = sock_path or os.environ.get("HERDR_SOCKET_PATH")
     if not path:
-        raise HerdrError("HERDR_SOCKET_PATH is unset - not running inside Herdr")
+        candidate = os.path.expanduser(DEFAULT_SOCKET)
+        if os.path.exists(candidate):
+            return candidate
+        raise HerdrError("no Herdr socket: HERDR_SOCKET_PATH unset and %s absent"
+                         % DEFAULT_SOCKET)
     return path
 
 

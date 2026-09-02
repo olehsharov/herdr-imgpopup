@@ -68,10 +68,27 @@ def test_call_raises_on_error_response(tmp_path):
         srv.close()
 
 
-def test_missing_socket_env_raises(monkeypatch):
+def test_missing_socket_env_raises_when_default_absent(monkeypatch, tmp_path):
     monkeypatch.delenv("HERDR_SOCKET_PATH", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))          # no ~/.config/herdr/herdr.sock
     with pytest.raises(api.HerdrError):
         api.call("pane.layout", {"pane_id": "w1:p1"})
+
+
+def test_default_socket_used_when_env_unset(monkeypatch, tmp_path):
+    """A kitty open_action arrives via a fresh ssh session with no Herdr env."""
+    monkeypatch.delenv("HERDR_SOCKET_PATH", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    sockdir = tmp_path / ".config" / "herdr"
+    sockdir.mkdir(parents=True)
+    srv = FakeServer(sockdir, {"id": "x", "result": {"type": "ok"}})
+    os.rename(srv.path, str(sockdir / "herdr.sock"))
+    srv.path = str(sockdir / "herdr.sock")
+    try:
+        api.call("pane.graphics.clear", {"pane_id": "w1:p1"})
+        assert srv.requests[0]["method"] == "pane.graphics.clear"
+    finally:
+        srv.close()
 
 
 def test_pane_rect_returns_width_and_height(tmp_path):
