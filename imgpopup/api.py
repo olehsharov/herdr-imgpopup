@@ -66,7 +66,8 @@ def pane_rect(pane_id: str, sock_path: Optional[str] = None) -> Tuple[int, int]:
 
 def graphics_set(pane_id: str, png_bytes: bytes, img_w: int, img_h: int,
                  cols: int, rows: int, col: int, row: int,
-                 layer_id: str = "img", sock_path: Optional[str] = None) -> None:
+                 layer_id: str = "img", sock_path: Optional[str] = None,
+                 z_index: int = 0) -> None:
     """Place (or replace) a PNG layer. Same layer_id replaces in place."""
     call("pane.graphics.set", {
         "pane_id": pane_id,
@@ -75,7 +76,7 @@ def graphics_set(pane_id: str, png_bytes: bytes, img_w: int, img_h: int,
         "image_width": img_w,
         "image_height": img_h,
         "layer_id": layer_id,
-        "z_index": 0,
+        "z_index": z_index,
         "placement": {"grid_cols": cols, "grid_rows": rows,
                       "viewport_col": col, "viewport_row": row},
     }, sock_path)

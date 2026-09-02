@@ -86,18 +86,23 @@ def test_unreadable_file_raises(tmp_path):
 from imgpopup.imageio import encode_tiles, open_image
 
 
-def test_tiles_cover_the_placement_exactly(tmp_path):
+def test_tiles_cover_the_placement_and_overlap_neighbours_by_one_cell(tmp_path):
     p = noise(tmp_path, "photo.png", (1200, 900))
     img = open_image(str(p))
     tiles = encode_tiles(img, (0, 0, 1200, 900), cols=257, rows=96, col=3, row=1, k=3)
     assert len(tiles) == 9
-    cells = set()
+    covered = set()
     for t in tiles:
         for c in range(t.col, t.col + t.cols):
             for r in range(t.row, t.row + t.rows):
-                assert (c, r) not in cells               # no overlap
-                cells.add((c, r))
-    assert cells == {(c, r) for c in range(3, 260) for r in range(1, 97)}
+                covered.add((c, r))
+    assert covered == {(c, r) for c in range(3, 260) for r in range(1, 97)}
+    by = {t.layer: t for t in tiles}
+    # a tile with a right neighbour extends one cell into it; the last column does not
+    assert by["img-0"].cols == 86 + 1 and by["img-2"].cols == 85
+    assert by["img-0"].rows == 32 + 1 and by["img-6"].rows == 32
+    # right/bottom neighbours draw on top
+    assert by["img-1"].z > by["img-0"].z and by["img-3"].z > by["img-0"].z
 
 
 def test_every_tile_is_under_budget_and_tiles_beat_one_png(tmp_path):

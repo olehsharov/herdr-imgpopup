@@ -35,6 +35,7 @@ class Tile:
     rows: int
     col: int
     row: int
+    z: int = 0
 
 
 def _has_alpha(img: Image.Image) -> bool:
@@ -87,6 +88,10 @@ def encode_tiles(img: Image.Image, view: Tuple[int, int, int, int],
     cell-aligned tiles and encode the matching slice of `view` for each.
 
     Cell spans and source spans use the same fractions, so tiles meet exactly.
+    Each tile except the last column/row is extended by ONE cell to the right
+    and bottom and given a higher z than its left/top neighbours: the client
+    leaves a ~1 px gap at a placement's edge, and this puts every such gap
+    underneath the next tile instead of on screen.
     `sink`, if given, is called with each tile from the worker thread as soon
     as it is encoded - sending from there overlaps the ~1 ms/KB transport to
     the client across tiles (measured: 4 tiles 2.13 s sequential, 0.56 s
@@ -98,24 +103,27 @@ def encode_tiles(img: Image.Image, view: Tuple[int, int, int, int],
     jobs = []
     for ty, (r0, rn) in enumerate(ys):
         for tx, (c0, cn) in enumerate(xs):
+            cn_ext = cn + (1 if tx < len(xs) - 1 else 0)
+            rn_ext = rn + (1 if ty < len(ys) - 1 else 0)
             sx0 = vx + vw * c0 / cols
-            sx1 = vx + vw * (c0 + cn) / cols
+            sx1 = vx + vw * (c0 + cn_ext) / cols
             sy0 = vy + vh * r0 / rows
-            sy1 = vy + vh * (r0 + rn) / rows
+            sy1 = vy + vh * (r0 + rn_ext) / rows
             box = (int(round(sx0)), int(round(sy0)),
                    max(int(round(sx0)) + 1, int(round(sx1))),
                    max(int(round(sy0)) + 1, int(round(sy1))))
-            jobs.append(("img-%d" % (ty * len(xs) + tx), box, cn, rn, col + c0, row + r0))
+            z = ty * len(xs) + tx
+            jobs.append(("img-%d" % z, box, cn_ext, rn_ext, col + c0, row + r0, z))
 
     def work(job):
-        layer, box, cn, rn, c, r = job
+        layer, box, cn, rn, c, r, z = job
         tile = img.crop(box)
         max_w = max(MIN_SIDE, cn * cell_px)
         if tile.width > max_w:
             tile = tile.resize((max_w, max(1, round(tile.height * max_w / tile.width))),
                                Image.LANCZOS)
         data, tile = shrink_to_budget(tile, max_bytes)
-        out = Tile(layer, data, tile.width, tile.height, cn, rn, c, r)
+        out = Tile(layer, data, tile.width, tile.height, cn, rn, c, r, z)
         if sink is not None:
             sink(out)
         return out

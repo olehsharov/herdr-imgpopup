@@ -86,7 +86,8 @@ class Viewer:
         k = tile_count(st.zoom)
         def send(t):
             api.graphics_set(self.pane_id, t.png, t.width, t.height,
-                             t.cols, t.rows, t.col, t.row, layer_id=t.layer)
+                             t.cols, t.rows, t.col, t.row, layer_id=t.layer,
+                             z_index=t.z)
         try:
             tiles = encode_tiles(self.img, view, cols, rows, col, row, k, sink=send)
             self._clear_layers(len(tiles))

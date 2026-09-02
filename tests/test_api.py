@@ -147,3 +147,12 @@ def test_pane_alive_false_when_pane_missing(tmp_path):
 
 def test_pane_alive_false_when_socket_is_gone(tmp_path):
     assert api.pane_alive("w1:p1", sock_path=str(tmp_path / "nope.sock")) is False
+
+
+def test_graphics_set_passes_z_index(tmp_path):
+    srv = FakeServer(tmp_path, {"id": "x", "result": {"type": "ok"}})
+    try:
+        api.graphics_set("w1:p1", b"x", 1, 1, 1, 1, 0, 0, sock_path=srv.path, z_index=7)
+        assert srv.requests[0]["params"]["z_index"] == 7
+    finally:
+        srv.close()
