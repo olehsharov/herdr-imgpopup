@@ -52,6 +52,43 @@ def _popup_alive() -> bool:
     return bool(pane_id) and api.pane_alive(pane_id)
 
 
+def _pane_cwds() -> list:
+    """Working directories of every Herdr pane, focused pane first.
+
+    A click arrives here through a fresh ssh session whose cwd is $HOME, and
+    the kitten can only supply a cwd when a shell prompt is visible above the
+    click. For a relative path from a Claude Code or ranger pane, Herdr itself
+    is the only thing that knows where that pane is.
+    """
+    try:
+        panes = api.call("pane.list", {}).get("panes", [])
+    except (api.HerdrError, OSError):
+        return []
+    panes = sorted(panes, key=lambda p: not p.get("focused"))
+    out = []
+    for pane in panes:
+        for key in ("foreground_cwd", "cwd"):
+            d = pane.get(key)
+            if d and d not in out:
+                out.append(d)
+    return out
+
+
+def _resolve_anywhere(target: str, cwd: Optional[str]):
+    """resolve() against the given cwd, then against every Herdr pane cwd."""
+    try:
+        return resolve(target, cwd or os.getcwd())
+    except ResolveError as first:
+        if target.startswith(("/", "~", "file://")):
+            raise
+        for d in _pane_cwds():
+            try:
+                return resolve(target, d)
+            except ResolveError:
+                continue
+        raise first
+
+
 def _open_popup() -> None:
     """Open the viewer as an overlay.
 
@@ -82,7 +119,7 @@ def main(argv: Optional[list] = None) -> int:
         return 2
 
     try:
-        path = resolve(target, cwd or os.getcwd())
+        path = _resolve_anywhere(target, cwd)
     except ResolveError as exc:
         sys.stderr.write("imgpopup: %s\n" % exc)
         return 2

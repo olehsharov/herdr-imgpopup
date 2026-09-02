@@ -31,12 +31,13 @@ import time
 from typing import Any, List, Optional
 
 IMAGE_EXT = r"(?:png|jpe?g|webp|gif|bmp|tiff?|mp4|mkv|webm|mov|m4v)"
-# A candidate token: file:// URL, absolute or ~ path, or a bare name; all must
-# end in an image/video extension. Spaces are not allowed inside a token.
+# A candidate token ending in an image/video extension: file:// URL, absolute,
+# ~, or RELATIVE path (with or without slashes). Must start at a token boundary
+# so `tmp/x/a.png` is taken whole, never as `/x/a.png` from its first slash.
 TOKEN_RE = re.compile(
-    r"(?:file://[^\s'\"<>]+?\." + IMAGE_EXT +
-    r"|(?:~|\.{1,2})?/[^\s'\"<>|]*?\." + IMAGE_EXT +
-    r"|[\w.@+-]+\." + IMAGE_EXT + r")(?![\w.])",
+    r"(?<![\w/~.-])"
+    r"((?:file://)?[^\s'\"<>|()\[\]:]+?\." + IMAGE_EXT + r")"   # no ":" inside: `path:/x.png`, `host:/x.png`
+    r"(?![\w.])",
     re.IGNORECASE,
 )
 # `user@host:/some/dir$ ` or `user@host:~/dir$ ` - a bash prompt exposing cwd.
@@ -164,10 +165,23 @@ def _selftest() -> int:
         ((5, 5), None),
         ((30, 6), "/mnt/data_2/tryrims/data/samples/car.jpg"),     # file://host/path
         ((0, 99), None),
+        ((5, 8), "~/dev/tryrims/tmp/hardcases/hardcases_part1.png"),  # relative w/ slashes
+        ((20, 8), "~/dev/tryrims/tmp/hardcases/hardcases_part1.png"), # clicked past a slash
+        ((8, 9), "/mnt/a/b.png"),                                    # inside (parens)
+        ((8, 10), "/mnt/a/b.png"),                                   # after a colon
     ]
+    lines += [
+        "ubuntu@renderilla:~/dev/tryrims$ ls tmp/hardcases",
+        "tmp/hardcases/hardcases_part1.png",
+        "(see /mnt/a/b.png)",
+        "path:/mnt/a/b.png",
+    ]
+    no_prompt = ["tmp/hardcases/hardcases_part1.png"]
+    cases.append(((3, 0), "tmp/hardcases/hardcases_part1.png"))     # stays relative
     bad = 0
     for (x, y), want in cases:
-        got = find_target(lines, x, y)
+        src = no_prompt if want == "tmp/hardcases/hardcases_part1.png" else lines
+        got = find_target(src, x, y)
         ok = got == want
         bad += not ok
         print("%s (%2d,%d) -> %r" % ("ok " if ok else "BAD", x, y, got) + ("" if ok else "  want %r" % want))

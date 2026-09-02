@@ -79,3 +79,44 @@ def test_does_not_reopen_when_popup_alive(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "_open_popup", lambda: calls.append(1))
     assert cli.main(["show", str(img)]) == 0
     assert calls == []
+
+
+def test_relative_path_falls_back_to_herdr_pane_cwds(tmp_path, monkeypatch):
+    """A click on `tmp/x.png` in a Claude Code pane: no prompt, ssh cwd is
+    $HOME - only Herdr knows that pane's directory."""
+    proj = tmp_path / "proj"
+    (proj / "tmp").mkdir(parents=True)
+    Image.new("RGB", (10, 10)).save(proj / "tmp" / "x.png")
+    monkeypatch.chdir(tmp_path)                       # like ssh: not the project
+    monkeypatch.delenv("HERDR_PLUGIN_CONTEXT_JSON", raising=False)
+    monkeypatch.setenv("HERDR_PLUGIN_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr(cli, "_pane_cwds", lambda: ["/nowhere", str(proj)])
+    monkeypatch.setattr(cli, "_popup_alive", lambda: True)
+    assert cli.main(["show", "tmp/x.png"]) == 0
+    assert (tmp_path / "state" / "current").read_text().strip() == str(proj / "tmp" / "x.png")
+
+
+def test_relative_path_unresolvable_anywhere_exits_2(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("HERDR_PLUGIN_CONTEXT_JSON", raising=False)
+    monkeypatch.setenv("HERDR_PLUGIN_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr(cli, "_pane_cwds", lambda: [str(tmp_path)])
+    assert cli.main(["show", "tmp/ghost.png"]) == 2
+    assert "no such file" in capsys.readouterr().err
+
+
+def test_absolute_path_does_not_consult_panes(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERDR_PLUGIN_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.delenv("HERDR_PLUGIN_CONTEXT_JSON", raising=False)
+    called = []
+    monkeypatch.setattr(cli, "_pane_cwds", lambda: called.append(1) or [])
+    assert cli.main(["show", str(tmp_path / "ghost.png")]) == 2
+    assert called == []
+
+
+def test_pane_cwds_prefers_focused_and_dedups(monkeypatch):
+    panes = [{"pane_id": "a", "focused": False, "cwd": "/h", "foreground_cwd": "/p1"},
+             {"pane_id": "b", "focused": True, "cwd": "/p2", "foreground_cwd": "/p2"},
+             {"pane_id": "c", "focused": False, "cwd": "/p1", "foreground_cwd": None}]
+    monkeypatch.setattr(cli.api, "call", lambda m, p, *a, **k: {"panes": panes})
+    assert cli._pane_cwds() == ["/p2", "/p1", "/h"]
