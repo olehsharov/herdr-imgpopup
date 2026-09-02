@@ -1,0 +1,9 @@
+[project]
+name = "herdr-imgpopup"
+version = "0.1.0"
+description = "Zoomable image popup for the Herdr terminal workspace manager"
+requires-python = ">=3.9"
+dependencies = ["Pillow>=9.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

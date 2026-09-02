@@ -1,0 +1,27 @@
+id = "imgpopup"
+name = "Image Popup"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+platforms = ["linux", "macos"]
+
+[[build]]
+command = ["./build.sh"]
+
+[[panes]]
+id = "view"
+title = "Image"
+description = "Zoomable image viewer"
+command = ["./run.sh"]
+placement = "overlay"
+
+[[actions]]
+id = "show"
+title = "Show image"
+description = "Open the clicked image in a popup"
+command = ["./cli.sh", "show"]
+
+[[link_handlers]]
+id = "image"
+title = "Open image"
+pattern = "[\\w./~-]+\\.(?i:png|jpe?g|webp|gif|bmp|tiff?)"
+action = "show"
