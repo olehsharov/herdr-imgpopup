@@ -123,19 +123,24 @@ than a basename that has to be guessed against the pane's working directory.
 
 ## Keys
 
-| key | action | key | action |
-|---|---|---|---|
-| `+` `=` | zoom in | `h` `j` `k` `l` | pan |
-| `-` `_` | zoom out | `0` `f` | fit |
-| `q` `Esc` | close | | |
+| input | action |
+|---|---|
+| mouse wheel (any modifiers) | zoom in/out **at the pointer** |
+| drag with the left button | pan |
+| arrows (any modifiers), `h` `j` `k` `l` | pan |
+| `+` `=` PgUp / `-` `_` PgDn | zoom in / out |
+| `0` `f` | fit |
+| `q` Esc | close |
 
 Only one viewer exists at a time. Showing another image swaps it in place,
 keeping the overlay where it is.
 
 Zoom is real, not a stretch: every redraw re-encodes just the visible region of the
-original and splits it into a k×k grid of layers (2×2 at fit, up to 4×4 zoomed in),
-each its own PNG under Herdr's 512 KiB-per-layer limit — so zooming in shows more
-pixels, and even the fit view carries 4× what a single layer could.
+original and splits it into a k×k grid of layers (2×2 at fit, up to 4×4 zoomed in —
+Herdr allows 16 layers per pane), each its own PNG under Herdr's 512 KiB-per-layer
+limit. Tiles are cut from exact float source boxes at one shared scale, sized to the
+client's real cell pixels (`pane.graphics.info`), and overlap their neighbours by one
+cell, so they meet with no seams at any zoom. The fit view fills the overlay.
 
 ## Troubleshooting
 

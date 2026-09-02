@@ -14,10 +14,15 @@ from typing import Optional
 from . import api
 from .geometry import tile_count
 from .imageio import encode_tiles, open_image
-from .state import ViewerState
+from .input import InputParser
+from .state import ViewerState, ZOOM_STEP
 
 PLUGIN_ID = "imgpopup"
 POLL_SECONDS = 0.25
+ESC_SETTLE_SECONDS = 0.03
+MOUSE_ON = "\x1b[?1002h\x1b[?1006h"
+MOUSE_OFF = "\x1b[?1006l\x1b[?1002l"
+DEFAULT_CELL = (8, 16)
 
 
 def state_dir() -> str:
@@ -48,7 +53,17 @@ class Viewer:
     def __init__(self, pane_id: str):
         self.pane_id = pane_id
         self.cols, self.rows = api.pane_rect(pane_id)
-        self.state = ViewerState(1, 1, self.cols, self.rows)
+        self.cell_w, self.cell_h = DEFAULT_CELL
+        self.max_k = 4
+        try:
+            info = api.graphics_info(pane_id)
+            self.cell_w = int(info.get("cell_width_px") or self.cell_w)
+            self.cell_h = int(info.get("cell_height_px") or self.cell_h)
+            layers = int(info.get("max_layers_per_pane") or 16)
+            self.max_k = max(1, int(layers ** 0.5))
+        except api.HerdrError:
+            pass                                   # draw() will surface it
+        self.state = ViewerState(1, 1, self.cols, self.rows, self.cell_w, self.cell_h)
         self.path = None
         self.img = None
         self.error = None
@@ -83,18 +98,19 @@ class Viewer:
         st = self.state
         view = st.view_rect()
         cols, rows, col, row = st.placement()
-        k = tile_count(st.zoom)
+        k = tile_count(st.zoom, max_k=self.max_k)
         def send(t):
             api.graphics_set(self.pane_id, t.png, t.width, t.height,
                              t.cols, t.rows, t.col, t.row, layer_id=t.layer,
                              z_index=t.z)
         try:
-            tiles = encode_tiles(self.img, view, cols, rows, col, row, k, sink=send)
+            tiles = encode_tiles(self.img, view, cols, rows, col, row, k,
+                                 self.cell_w, self.cell_h, sink=send)
             self._clear_layers(len(tiles))
             self.layers = len(tiles)
             px = sum(t.width * t.height for t in tiles)
             kb = sum(len(t.png) for t in tiles) // 1024
-            self.status("%s  %dx%d  x%.2f  %dx%d tiles %.1f Mpx %d KB   q close  +/- zoom  hjkl pan  0 fit"
+            self.status("%s  %dx%d  x%.2f  %dx%d tiles %.1f Mpx %d KB   wheel/+- zoom  drag/arrows pan  0 fit  q close"
                         % (os.path.basename(self.path or "?"), st.img_w, st.img_h,
                            st.zoom, k, k, px / 1e6, kb))
         except api.HerdrError as exc:
@@ -103,6 +119,27 @@ class Viewer:
                 hint = ("  -> set experimental.kitty_graphics = true in the CLIENT's "
                         "config.toml and restart it")
             self.status("cannot paint: %s%s" % (exc, hint))
+
+    def _apply(self, ev: tuple) -> str:
+        """One input event -> 'quit' | 'redraw' | 'ignore'."""
+        kind = ev[0]
+        if kind == "key":
+            return self.state.handle(ev[1])
+        if self.error:
+            return "ignore"
+        if kind == "wheel":
+            _, direction, x, y = ev
+            cols, rows, col, row = self.state.placement()
+            fx = min(1.0, max(0.0, (x - 1 - col) / float(cols)))
+            fy = min(1.0, max(0.0, (y - 1 - row) / float(rows)))
+            factor = ZOOM_STEP if direction == "in" else 1 / ZOOM_STEP
+            return "redraw" if self.state.zoom_at(factor, fx, fy) else "ignore"
+        if kind == "drag":
+            if self.state.zoom == 1.0:
+                return "ignore"
+            self.state.drag(ev[1], ev[2])
+            return "redraw"
+        return "ignore"
 
     def run(self) -> int:
         current = _read_current()
@@ -113,22 +150,32 @@ class Viewer:
 
         fd = sys.stdin.fileno()
         saved = termios.tcgetattr(fd)
+        parser = InputParser()
+        sys.stdout.write(MOUSE_ON)
+        sys.stdout.flush()
         try:
             tty.setraw(fd)
             while True:
-                ready, _, _ = select.select([fd], [], [], POLL_SECONDS)
+                timeout = ESC_SETTLE_SECONDS if parser.buf else POLL_SECONDS
+                ready, _, _ = select.select([fd], [], [], timeout)
                 if ready:
-                    key = os.read(fd, 1).decode("utf-8", "ignore")
-                    action = self.state.handle(key)
-                    if action == "quit":
-                        return 0
-                    if action == "redraw":
-                        self.draw()
+                    events = parser.feed(os.read(fd, 4096))
                 else:
+                    events = parser.flush()
                     latest = _read_current()
                     if latest and latest != self.path:
                         self.show(latest)
+                redraw = False
+                for ev in events:
+                    action = self._apply(ev)
+                    if action == "quit":
+                        return 0
+                    redraw = redraw or action == "redraw"
+                if redraw:
+                    self.draw()
         finally:
+            sys.stdout.write(MOUSE_OFF)
+            sys.stdout.flush()
             termios.tcsetattr(fd, termios.TCSADRAIN, saved)
             self._clear_layers(0)
             try:

@@ -96,3 +96,9 @@ def pane_alive(pane_id: str, sock_path: Optional[str] = None) -> bool:
         return False
     except OSError:
         return False
+
+
+def graphics_info(pane_id: str, sock_path: Optional[str] = None) -> dict:
+    """Client cell size in px, layer cap, etc. The only call that reports
+    graphics health (cell_size_unavailable when the client cannot paint)."""
+    return call("pane.graphics.info", {"pane_id": pane_id}, sock_path)

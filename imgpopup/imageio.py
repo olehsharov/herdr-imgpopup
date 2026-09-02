@@ -79,54 +79,80 @@ def load_png(path: str, max_px_w: int,
     return data, img.width, img.height
 
 
-def encode_tiles(img: Image.Image, view: Tuple[int, int, int, int],
-                 cols: int, rows: int, col: int, row: int, k: int,
-                 max_bytes: int = MAX_PNG_BYTES,
-                 cell_px: int = CELL_PX_TARGET,
-                 sink: Optional[Callable[["Tile"], None]] = None) -> List[Tile]:
-    """Split the placement (cols x rows cells at col,row) into k x k
-    cell-aligned tiles and encode the matching slice of `view` for each.
+TILE_PX_TARGET = 300_000        # output pixels per tile before the byte budget bites
 
-    Cell spans and source spans use the same fractions, so tiles meet exactly.
-    Each tile except the last column/row is extended by ONE cell to the right
-    and bottom and given a higher z than its left/top neighbours: the client
-    leaves a ~1 px gap at a placement's edge, and this puts every such gap
-    underneath the next tile instead of on screen.
-    `sink`, if given, is called with each tile from the worker thread as soon
-    as it is encoded - sending from there overlaps the ~1 ms/KB transport to
-    the client across tiles (measured: 4 tiles 2.13 s sequential, 0.56 s
-    concurrent). Exceptions from `sink` propagate out of this call.
-    """
+
+def out_px_per_col(view_w: float, cols: int, rows: int, k: int,
+                   cell_w: int, cell_h: int, px_per_tile: int = TILE_PX_TARGET) -> float:
+    """Output pixels per column, ONE value for every tile: never above the
+    source resolution, never above the screen's, and sized so the whole view
+    is about k^2 * px_per_tile pixels."""
+    source = view_w / cols
+    screen = float(cell_w)
+    budget = (k * k * px_per_tile * cell_w / (cols * rows * cell_h)) ** 0.5
+    return max(0.5, min(source, screen, budget))
+
+
+def _plan(view, cols, rows, k, cell_w, cell_h, ppc):
+    """Cell spans, exact float source boxes and output sizes for k x k tiles.
+    Each tile but the last column/row extends one cell into its right/bottom
+    neighbour and gets a higher z, hiding the client's ~1 px placement edge."""
     vx, vy, vw, vh = view
     xs = split_cells(cols, k)
     ys = split_cells(rows, k)
+    ppr = ppc * cell_h / cell_w
     jobs = []
     for ty, (r0, rn) in enumerate(ys):
         for tx, (c0, cn) in enumerate(xs):
-            cn_ext = cn + (1 if tx < len(xs) - 1 else 0)
-            rn_ext = rn + (1 if ty < len(ys) - 1 else 0)
-            sx0 = vx + vw * c0 / cols
-            sx1 = vx + vw * (c0 + cn_ext) / cols
-            sy0 = vy + vh * r0 / rows
-            sy1 = vy + vh * (r0 + rn_ext) / rows
-            box = (int(round(sx0)), int(round(sy0)),
-                   max(int(round(sx0)) + 1, int(round(sx1))),
-                   max(int(round(sy0)) + 1, int(round(sy1))))
+            cn_e = cn + (1 if tx < len(xs) - 1 else 0)
+            rn_e = rn + (1 if ty < len(ys) - 1 else 0)
+            box = (vx + vw * c0 / cols, vy + vh * r0 / rows,
+                   vx + vw * (c0 + cn_e) / cols, vy + vh * (r0 + rn_e) / rows)
+            size = (max(1, round(cn_e * ppc)), max(1, round(rn_e * ppr)))
             z = ty * len(xs) + tx
-            jobs.append(("img-%d" % z, box, cn_ext, rn_ext, col + c0, row + r0, z))
+            jobs.append(("img-%d" % z, box, size, cn_e, rn_e, c0, r0, z))
+    return jobs
 
-    def work(job):
-        layer, box, cn, rn, c, r, z = job
-        tile = img.crop(box)
-        max_w = max(MIN_SIDE, cn * cell_px)
-        if tile.width > max_w:
-            tile = tile.resize((max_w, max(1, round(tile.height * max_w / tile.width))),
-                               Image.LANCZOS)
-        data, tile = shrink_to_budget(tile, max_bytes)
-        out = Tile(layer, data, tile.width, tile.height, cn, rn, c, r, z)
-        if sink is not None:
-            sink(out)
-        return out
 
-    with ThreadPoolExecutor(max_workers=ENCODE_THREADS) as pool:
-        return list(pool.map(work, jobs))
+def _clamp_box(box, img_w, img_h):
+    x0, y0, x1, y1 = box
+    x0, y0 = min(max(0.0, x0), img_w - 1.0), min(max(0.0, y0), img_h - 1.0)
+    x1, y1 = min(max(x0 + 1e-3, x1), float(img_w)), min(max(y0 + 1e-3, y1), float(img_h))
+    return x0, y0, x1, y1
+
+
+def encode_tiles(img: Image.Image, view: Tuple[float, float, float, float],
+                 cols: int, rows: int, col: int, row: int, k: int,
+                 cell_w: int, cell_h: int,
+                 max_bytes: int = MAX_PNG_BYTES,
+                 px_per_tile: int = TILE_PX_TARGET,
+                 sink: Optional[Callable[["Tile"], None]] = None) -> List[Tile]:
+    """Encode the visible region as k x k cell-aligned PNG tiles.
+
+    Every tile is resampled from an EXACT float source box with the SAME
+    scale, so neighbours are continuous to sub-pixel precision at any zoom.
+    If any tile exceeds max_bytes, all tiles are re-encoded at one smaller
+    scale (uniformity matters more than the odd second pass).
+    `sink` is called from the worker as soon as a tile under budget is
+    encoded; a second pass re-sends every tile.
+    """
+    ppc = out_px_per_col(view[2], cols, rows, k, cell_w, cell_h, px_per_tile)
+    for _attempt in range(5):
+        jobs = _plan(view, cols, rows, k, cell_w, cell_h, ppc)
+
+        def work(job):
+            layer, box, size, cn, rn, c0, r0, z = job
+            tile = img.resize(size, Image.LANCZOS, box=_clamp_box(box, img.width, img.height))
+            data = _encode(tile)
+            out = Tile(layer, data, tile.width, tile.height, cn, rn, col + c0, row + r0, z)
+            if sink is not None and len(data) <= max_bytes:
+                sink(out)
+            return out
+
+        with ThreadPoolExecutor(max_workers=ENCODE_THREADS) as pool:
+            tiles = list(pool.map(work, jobs))
+        worst = max(len(t.png) for t in tiles)
+        if worst <= max_bytes:
+            return tiles
+        ppc *= (max_bytes / worst) ** 0.5 * 0.9
+    raise ValueError("tiles will not fit under %d bytes" % max_bytes)

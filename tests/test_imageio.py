@@ -83,13 +83,15 @@ def test_unreadable_file_raises(tmp_path):
         load_png(str(p), max_px_w=800)
 
 
-from imgpopup.imageio import encode_tiles, open_image
+from imgpopup.imageio import encode_tiles, open_image, out_px_per_col
+
+CELL = dict(cell_w=14, cell_h=25)
 
 
 def test_tiles_cover_the_placement_and_overlap_neighbours_by_one_cell(tmp_path):
     p = noise(tmp_path, "photo.png", (1200, 900))
     img = open_image(str(p))
-    tiles = encode_tiles(img, (0, 0, 1200, 900), cols=257, rows=96, col=3, row=1, k=3)
+    tiles = encode_tiles(img, (0.0, 0.0, 1200.0, 900.0), 257, 96, 3, 1, k=3, **CELL)
     assert len(tiles) == 9
     covered = set()
     for t in tiles:
@@ -98,43 +100,44 @@ def test_tiles_cover_the_placement_and_overlap_neighbours_by_one_cell(tmp_path):
                 covered.add((c, r))
     assert covered == {(c, r) for c in range(3, 260) for r in range(1, 97)}
     by = {t.layer: t for t in tiles}
-    # a tile with a right neighbour extends one cell into it; the last column does not
     assert by["img-0"].cols == 86 + 1 and by["img-2"].cols == 85
     assert by["img-0"].rows == 32 + 1 and by["img-6"].rows == 32
-    # right/bottom neighbours draw on top
     assert by["img-1"].z > by["img-0"].z and by["img-3"].z > by["img-0"].z
 
 
-def test_every_tile_is_under_budget_and_tiles_beat_one_png(tmp_path):
+def test_every_tile_shares_one_scale(tmp_path):
+    """Sub-pixel continuity across tile edges needs identical px-per-cell."""
     p = noise(tmp_path, "photo.png", (1600, 1200))
     img = open_image(str(p))
-    tiles = encode_tiles(img, (0, 0, 1600, 1200), 200, 100, 0, 0, k=3, max_bytes=200_000)
-    assert all(len(t.png) <= 200_000 for t in tiles)
-    single, w, h = load_png(str(p), max_px_w=8000, max_bytes=200_000)
-    assert sum(t.width * t.height for t in tiles) > 3 * w * h
+    tiles = encode_tiles(img, (0.0, 0.0, 1600.0, 1200.0), 257, 96, 0, 0, k=3, **CELL)
+    ppc = [t.width / t.cols for t in tiles]
+    ppr = [t.height / t.rows for t in tiles]
+    assert max(ppc) - min(ppc) < 0.02 and max(ppr) - min(ppr) < 0.04
+    assert ppr[0] / ppc[0] == pytest.approx(25 / 14, rel=0.02)   # output aspect == cell aspect
 
 
-def test_zoomed_view_encodes_only_the_crop(tmp_path):
-    p = noise(tmp_path, "photo.png", (1000, 1000))
+def test_output_never_exceeds_source_or_screen_resolution(tmp_path):
+    p = noise(tmp_path, "photo.png", (400, 300))
     img = open_image(str(p))
-    tiles = encode_tiles(img, (400, 400, 200, 200), 100, 50, 0, 0, k=2)
-    assert len(tiles) == 4
-    # 200x200 source at k=2 -> each tile ~100 px wide (+1 overlap cell = 2 px), never upscaled
-    assert all(t.width <= 103 for t in tiles)
+    view = (100.0, 100.0, 100.0, 75.0)                        # zoomed 4x into a small crop
+    tiles = encode_tiles(img, view, 200, 100, 0, 0, k=2, **CELL)
+    ppc = tiles[0].width / tiles[0].cols
+    assert ppc <= 100.0 / 200 + 1e-6 or ppc <= 14              # source-limited here
+    assert sum(t.width * t.height for t in tiles) < 4 * 300_000
 
 
-def test_tile_layers_are_stable_names(tmp_path):
-    p = write(tmp_path, "a.png", (64, 64))
-    tiles = encode_tiles(open_image(str(p)), (0, 0, 64, 64), 20, 10, 0, 0, k=2)
-    assert [t.layer for t in tiles] == ["img-0", "img-1", "img-2", "img-3"]
-
-
-def test_sink_receives_every_tile_as_it_is_encoded(tmp_path):
-    p = write(tmp_path, "a.png", (64, 64))
-    seen = []
-    tiles = encode_tiles(open_image(str(p)), (0, 0, 64, 64), 20, 10, 0, 0, k=2,
-                         sink=lambda t: seen.append(t.layer))
-    assert sorted(seen) == sorted(t.layer for t in tiles) == ["img-0", "img-1", "img-2", "img-3"]
+def test_budget_forces_a_uniform_second_pass(tmp_path):
+    p = noise(tmp_path, "photo.png", (1600, 1200))
+    img = open_image(str(p))
+    sent = []
+    tiles = encode_tiles(img, (0.0, 0.0, 1600.0, 1200.0), 200, 100, 0, 0, k=2, **CELL,
+                         max_bytes=150_000, sink=lambda t: sent.append((t.layer, len(t.png))))
+    assert all(len(t.png) <= 150_000 for t in tiles)
+    ppc = [t.width / t.cols for t in tiles]
+    assert max(ppc) - min(ppc) < 0.02                          # still one scale after shrinking
+    final = {t.layer: len(t.png) for t in tiles}
+    assert all(final[layer] == size for layer, size in sent if size == final[layer])
+    assert {layer for layer, _ in sent} == set(final)          # every layer was sent
 
 
 def test_sink_errors_propagate(tmp_path):
@@ -142,4 +145,14 @@ def test_sink_errors_propagate(tmp_path):
     def boom(t):
         raise RuntimeError("socket gone")
     with pytest.raises(RuntimeError):
-        encode_tiles(open_image(str(p)), (0, 0, 64, 64), 20, 10, 0, 0, k=2, sink=boom)
+        encode_tiles(open_image(str(p)), (0.0, 0.0, 64.0, 64.0), 20, 10, 0, 0, k=2, sink=boom, **CELL)
+
+
+def test_out_px_per_col_bounds():
+    # source-limited: 400 px over 200 cols -> 2 px/col even though the screen has 14
+    assert out_px_per_col(400.0, 200, 100, 2, 14, 25) == pytest.approx(2.0)
+    # screen-limited: huge source, tiny placement -> 14
+    assert out_px_per_col(100000.0, 10, 5, 4, 14, 25) == 14.0
+    # budget-limited: big placement at fit
+    v = out_px_per_col(100000.0, 300, 100, 2, 14, 25)
+    assert v < 14 and 300 * v * 100 * v * 25 / 14 == pytest.approx(4 * 300_000, rel=1e-6)

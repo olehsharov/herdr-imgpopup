@@ -156,3 +156,15 @@ def test_graphics_set_passes_z_index(tmp_path):
         assert srv.requests[0]["params"]["z_index"] == 7
     finally:
         srv.close()
+
+
+def test_graphics_info_returns_cell_size(tmp_path):
+    srv = FakeServer(tmp_path, {"id": "x", "result": {"type": "pane_graphics_info",
+                                                       "cell_width_px": 14, "cell_height_px": 25,
+                                                       "max_layers_per_pane": 16}})
+    try:
+        info = api.graphics_info("w1:p1", sock_path=srv.path)
+        assert (info["cell_width_px"], info["cell_height_px"]) == (14, 25)
+        assert srv.requests[0]["method"] == "pane.graphics.info"
+    finally:
+        srv.close()
