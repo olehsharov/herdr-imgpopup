@@ -58,7 +58,26 @@ printf '#!/bin/sh\nexec "$(herdr plugin list --json | python3 -c "import sys,jso
 chmod +x ~/.local/bin/img
 ```
 
-> **Clicking a path does not work on Herdr 0.8.2.** The plugin registers a
+## Clicking, for real — via kitty
+
+Herdr's own link handlers do not dispatch (below), but the **outer terminal** has its
+own click pipeline that runs regardless of which app owns the pane. If you use kitty,
+copy [`kitty/open-actions.conf`](kitty/open-actions.conf) to `~/.config/kitty/` and
+append [`kitty/kitty.conf.snippet`](kitty/kitty.conf.snippet) to your `kitty.conf`,
+on the machine running kitty. Replace `renderilla` with your `herdr --remote` target.
+Then:
+
+| what's on screen | how to open it |
+|---|---|
+| `file:///abs/path/img.png` | **ctrl+shift+click** |
+| a bare path `/abs/path/img.png` | **ctrl+shift+i**, then the hint letter |
+| `file:///abs/path/clip.mp4` | **ctrl+shift+click** → mpv in a kitty overlay |
+
+Why ctrl+shift: Herdr captures the mouse, so plain/Cmd/Alt clicks go to the pane app.
+`ctrl+shift+click` is kitty's own "click the URL even though the app grabbed the mouse".
+Why `file://`: kitty detects URLs by prefix; a bare path has none, so it is never a link.
+
+> **Herdr's link handlers do not dispatch on 0.8.2.** The plugin registers a
 > `[[link_handlers]]` entry, and Herdr accepts it, but nothing dispatches it:
 > bare paths are never highlighted, real OSC 8 hyperlinks are highlighted yet
 > inert, and no entry appears in the right-click menu. There is no modifier to
