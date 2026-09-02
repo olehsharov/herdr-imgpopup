@@ -119,8 +119,8 @@ def test_zoomed_view_encodes_only_the_crop(tmp_path):
     img = open_image(str(p))
     tiles = encode_tiles(img, (400, 400, 200, 200), 100, 50, 0, 0, k=2)
     assert len(tiles) == 4
-    # 200x200 source at k=2 -> each tile ~100 px wide, never upscaled
-    assert all(t.width <= 101 for t in tiles)
+    # 200x200 source at k=2 -> each tile ~100 px wide (+1 overlap cell = 2 px), never upscaled
+    assert all(t.width <= 103 for t in tiles)
 
 
 def test_tile_layers_are_stable_names(tmp_path):
