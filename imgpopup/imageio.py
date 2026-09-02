@@ -1,17 +1,20 @@
 """Load an image from disk and hand back PNG bytes small enough to send.
 
-Herdr's API socket rejects any request line over 1 MiB (measured 2026-09-03:
-1,048,250 bytes) by silently dropping the connection - the viewer sees a
-BrokenPipe and the pane stays empty. Base64 inflates by 4/3 and the JSON
-envelope adds a few hundred bytes, so the PNG itself must stay under ~700 KB.
-A pixel cap alone is not enough: a photo compresses far worse than a logo.
+Herdr enforces TWO limits on pane.graphics.set, both measured 2026-09-03:
+  * the image data itself: a PNG of 524,288 bytes (512 KiB) is accepted,
+    524,289 answers image_too_large - this is the binding one;
+  * the API request line: over ~1,048,250 bytes and the connection is dropped
+    with no reply ("api request line is too large" in the server log).
+Base64 inflates 512 KiB to ~700 KB, safely under the line limit, so budgeting
+the raw PNG at 512 KiB satisfies both. A pixel cap alone is not enough: a photo
+compresses far worse than a logo.
 """
 import io
 from typing import Tuple
 
 from PIL import Image
 
-MAX_PNG_BYTES = 700_000
+MAX_PNG_BYTES = 512 * 1024      # inclusive; 512 KiB + 1 is rejected
 MIN_SIDE = 16
 
 
