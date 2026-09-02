@@ -1,14 +1,14 @@
 # Append to ~/.config/kitty/kitty.conf   (on the machine running kitty)
+# __CFG__ is replaced by your kitty config dir at install time (see README).
 
 # --- clicking a URL while Herdr has grabbed the mouse -----------------------
-# These are kitty's defaults; stated explicitly so nothing depends on them.
-# Plain click goes to the pane app (Herdr's mouse_capture); ctrl+shift+click
-# is delivered to kitty's URL handler -> open-actions.conf.
+# kitty's defaults, stated explicitly so nothing depends on them. Plain click
+# goes to the pane app; ctrl+shift+click reaches kitty's URL handler.
 mouse_map ctrl+shift+left press   grabbed            discard_event
 mouse_map ctrl+shift+left release grabbed,ungrabbed  mouse_click_url
 
 # --- bare paths (no file:// prefix), e.g. in Claude Code or `ls` output ------
-# kitty cannot make a bare path clickable, but the hints kitten can label every
-# image path on screen with a letter: press ctrl+shift+i, then the letter.
-# Works in ANY pane - it reads the screen, so mouse capture is irrelevant.
-map ctrl+shift+i kitten hints --type regex --regex '((?:/|~/)[\w./~ -]+?\.(?:png|jpe?g|webp|gif|bmp|tiff?))' --program 'ssh renderilla img'
+# kitty cannot make a bare path clickable, but the hints kitten labels every
+# image path on screen with a letter: ctrl+shift+i, then the letter. Reads the
+# screen, so it works in any pane regardless of mouse capture.
+map ctrl+shift+i kitten hints --type regex --regex '((?:/|~/)[\w./~ -]+?\.(?:png|jpe?g|webp|gif|bmp|tiff?))' --program __CFG__/img-remote.sh

@@ -61,21 +61,38 @@ chmod +x ~/.local/bin/img
 ## Clicking, for real — via kitty
 
 Herdr's own link handlers do not dispatch (below), but the **outer terminal** has its
-own click pipeline that runs regardless of which app owns the pane. If you use kitty,
-copy [`kitty/open-actions.conf`](kitty/open-actions.conf) to `~/.config/kitty/` and
-append [`kitty/kitty.conf.snippet`](kitty/kitty.conf.snippet) to your `kitty.conf`,
-on the machine running kitty. Replace `renderilla` with your `herdr --remote` target.
-Then:
+own click pipeline that runs regardless of which app owns the pane. On the machine
+running kitty (with `HOST` = the ssh target you give `herdr --remote`):
+
+```bash
+HOST=ubuntu@your-herdr-box
+CFG=~/.config/kitty
+RAW=https://raw.githubusercontent.com/olehsharov/herdr-imgpopup/main/kitty
+curl -fsSL $RAW/img-remote.sh     -o $CFG/img-remote.sh
+curl -fsSL $RAW/open-actions.conf -o $CFG/open-actions.conf
+curl -fsSL $RAW/kitty.conf.snippet | sed "s|__CFG__|$CFG|g" >> $CFG/kitty.conf
+sed -i '' "s|__HOST__|$HOST|g; s|__CFG__|$CFG|g" $CFG/img-remote.sh $CFG/open-actions.conf
+chmod +x $CFG/img-remote.sh
+```
+
+Then reload kitty (**ctrl+shift+f5**) and verify each layer in order:
+
+```bash
+$CFG/img-remote.sh /path/on/the/box/image.png       # 1. ssh + img   -> overlay appears
+kitty +open file:///path/on/the/box/image.png       # 2. open-actions -> overlay appears
+```
 
 | what's on screen | how to open it |
 |---|---|
 | `file:///abs/path/img.png` | **ctrl+shift+click** |
 | a bare path `/abs/path/img.png` | **ctrl+shift+i**, then the hint letter |
-| `file:///abs/path/clip.mp4` | **ctrl+shift+click** → mpv in a kitty overlay |
+| `file:///abs/path/clip.mp4` | **ctrl+shift+click** → mpv in a kitty overlay (untested) |
 
-Why ctrl+shift: Herdr captures the mouse, so plain/Cmd/Alt clicks go to the pane app.
+Why ctrl+shift: Herdr captures the mouse, so plain/Cmd/Alt clicks go to the pane app;
 `ctrl+shift+click` is kitty's own "click the URL even though the app grabbed the mouse".
 Why `file://`: kitty detects URLs by prefix; a bare path has none, so it is never a link.
+Why a wrapper script: a non-interactive `ssh host img …` does not load your profile, so
+`img` is not on PATH there — the wrapper pins `$HOME/.local/bin/img` explicitly.
 
 > **Herdr's link handlers do not dispatch on 0.8.2.** The plugin registers a
 > `[[link_handlers]]` entry, and Herdr accepts it, but nothing dispatches it:
