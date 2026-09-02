@@ -1,14 +1,16 @@
 # Append to ~/.config/kitty/kitty.conf   (on the machine running kitty)
 # __CFG__ is replaced by your kitty config dir at install time (see README).
 
-# --- clicking a URL while Herdr has grabbed the mouse -----------------------
-# kitty's defaults, stated explicitly so nothing depends on them. Plain click
-# goes to the pane app; ctrl+shift+click reaches kitty's URL handler.
+# --- click ANY image path: the imgclick kitten ------------------------------
+# Runs inside kitty's process: reads the screen text and the exact cell you
+# clicked, so it works in Claude Code, ranger, `ls -la`, through Herdr - no
+# file:// prefix, no OSC 8, no mouse-capture problem. Falls back to kitty's
+# normal URL click when there is no image under the pointer.
+# Plain click goes to the pane app (Herdr grabs the mouse); ctrl+shift reaches kitty.
 mouse_map ctrl+shift+left press   grabbed            discard_event
-mouse_map ctrl+shift+left release grabbed,ungrabbed  mouse_click_url
+mouse_map ctrl+shift+left release grabbed,ungrabbed  kitten imgclick.py __CFG__/img-remote.sh
+# Swap img-remote.sh for img-native.sh to open in macOS Quick Look instead
+# (native window, pinch zoom, plays video).
 
-# --- bare paths (no file:// prefix), e.g. in Claude Code or `ls` output ------
-# kitty cannot make a bare path clickable, but the hints kitten labels every
-# image path on screen with a letter: ctrl+shift+i, then the letter. Reads the
-# screen, so it works in any pane regardless of mouse capture.
+# --- keyboard alternative: label every image path on screen -----------------
 map ctrl+shift+i kitten hints --type regex --regex '((?:/|~/)[\w./~ -]+?\.(?:png|jpe?g|webp|gif|bmp|tiff?))' --program __CFG__/img-remote.sh

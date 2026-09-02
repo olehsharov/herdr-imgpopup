@@ -58,47 +58,43 @@ printf '#!/bin/sh\nexec "$(herdr plugin list --json | python3 -c "import sys,jso
 chmod +x ~/.local/bin/img
 ```
 
-## Clicking, for real — via kitty
+## Clicking ANY image — the `imgclick` kitten
 
-Herdr's own link handlers do not dispatch (below), but the **outer terminal** has its
-own click pipeline that runs regardless of which app owns the pane. On the machine
-running kitty (with `HOST` = the ssh target you give `herdr --remote`):
+Herdr's link handlers never fire and Herdr strips OSC 8 hyperlinks, so no
+path can be made clickable *inside* Herdr. The way out is above it: a kitten that
+runs inside kitty's own process. It reads the screen text and the exact cell you
+clicked (`Window.current_mouse_position()` — real, just undocumented), so it works in
+Claude Code output, `ls -la`, ranger, anything, through Herdr — bare paths included.
+Bare `ls` names are resolved against the directory in the shell prompt above the click.
+
+Install on the machine running kitty (`HOST` = the ssh target you give `herdr --remote`):
 
 ```bash
 HOST=ubuntu@your-herdr-box
 CFG=~/.config/kitty
 RAW=https://raw.githubusercontent.com/olehsharov/herdr-imgpopup/main/kitty
-curl -fsSL $RAW/img-remote.sh     -o $CFG/img-remote.sh
-curl -fsSL $RAW/open-actions.conf -o $CFG/open-actions.conf
+for f in imgclick.py img-remote.sh img-native.sh open-actions.conf; do curl -fsSL $RAW/$f -o $CFG/$f; done
 curl -fsSL $RAW/kitty.conf.snippet | sed "s|__CFG__|$CFG|g" >> $CFG/kitty.conf
-sed -i '' "s|__HOST__|$HOST|g; s|__CFG__|$CFG|g" $CFG/img-remote.sh $CFG/open-actions.conf
-chmod +x $CFG/img-remote.sh
+sed -i '' "s|__HOST__|$HOST|g; s|__CFG__|$CFG|g" $CFG/img-remote.sh $CFG/img-native.sh $CFG/open-actions.conf
+chmod +x $CFG/img-remote.sh $CFG/img-native.sh
 ```
 
-Then reload kitty (**ctrl+shift+f5**) and verify each layer in order:
+Reload kitty (**ctrl+shift+f5**), then **ctrl+shift+click** any image path on screen.
+Debug log: `~/.config/kitty/imgclick.log` (one line per click: cell, line text, result).
 
-```bash
-$CFG/img-remote.sh /path/on/the/box/image.png       # 1. ssh + img   -> overlay appears
-kitty +open file:///path/on/the/box/image.png       # 2. open-actions -> overlay appears
-```
-
-| what's on screen | how to open it |
+| pointer over | opens |
 |---|---|
-| `file:///abs/path/img.png` | **ctrl+shift+click** |
-| a bare path `/abs/path/img.png` | **ctrl+shift+i**, then the hint letter |
-| `ls` output | use `lsi` (below) and ctrl+shift+click the URL it adds |
-| `file:///abs/path/clip.mp4` | **ctrl+shift+click** → mpv in a kitty overlay (untested) |
+| `/abs/path/img.png`, `~/x.jpg`, `file:///…`, `file://host/…` | that file |
+| `car.jpg` in `ls -la` output | `<dir from the prompt above>/car.jpg` |
+| an `https://` link | kitty's normal URL open (fallback) |
 
-**`ls` output:** Herdr strips OSC 8 hyperlinks when rendering a pane, so
-`ls --hyperlink` never reaches kitty. [`shell/lsi.sh`](shell/lsi.sh) defines `lsi`,
-an `ls -la` that appends a plain-text `file://` URL per image — those kitty does detect.
-On the Herdr box: `echo 'source ~/.config/herdr/plugins/.../shell/lsi.sh' >> ~/.bashrc`.
+Two viewers, pick in the `mouse_map` line: **`img-remote.sh`** → Herdr overlay on the
+box (zoom/pan, in-terminal); **`img-native.sh`** → scp + macOS **Quick Look** (native
+floating window, pinch zoom, plays video). Keyboard alternative: **ctrl+shift+i** labels
+every image path on screen (hints kitten).
 
 Why ctrl+shift: Herdr captures the mouse, so plain/Cmd/Alt clicks go to the pane app;
-`ctrl+shift+click` is kitty's own "click the URL even though the app grabbed the mouse".
-Why `file://`: kitty detects URLs by prefix; a bare path has none, so it is never a link.
-Why a wrapper script: a non-interactive `ssh host img …` does not load your profile, so
-`img` is not on PATH there — the wrapper pins `$HOME/.local/bin/img` explicitly.
+ctrl+shift is the combination kitty still receives while an app has grabbed the mouse.
 
 > **Herdr's link handlers do not dispatch on 0.8.2.** The plugin registers a
 > `[[link_handlers]]` entry, and Herdr accepts it, but nothing dispatches it:
