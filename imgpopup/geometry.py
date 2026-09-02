@@ -4,7 +4,7 @@ Herdr places images in CELLS, not pixels, so every size here is a cell count.
 CELL_RATIO is cell width divided by cell height - about 0.5 for typical
 terminal fonts - and converts an image's pixel aspect into a cell aspect.
 """
-from typing import Tuple
+from typing import List, Tuple
 
 CELL_RATIO = 0.5
 
@@ -57,3 +57,25 @@ def encode_cap(img_w: int, img_h: int, popup_px_w: int,
     if img_w <= target:
         return img_w, img_h
     return target, max(1, round(img_h * target / img_w))
+
+
+def split_cells(total: int, k: int) -> List[Tuple[int, int]]:
+    """k contiguous (start, size) spans that cover 0..total exactly, sizes
+    differing by at most one cell. Tiles must align to whole cells."""
+    k = max(1, min(k, total))
+    base, extra = divmod(total, k)
+    spans, start = [], 0
+    for i in range(k):
+        size = base + (1 if i < extra else 0)
+        spans.append((start, size))
+        start += size
+    return spans
+
+
+def tile_count(zoom: float, base: int = 2, max_k: int = 4) -> int:
+    """Tiles per side: 2x2 at fit, one more per doubling of zoom, capped."""
+    k, z = base, zoom
+    while z >= 2 and k < max_k:
+        k += 1
+        z /= 2
+    return k

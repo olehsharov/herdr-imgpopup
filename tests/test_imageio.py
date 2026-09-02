@@ -81,3 +81,44 @@ def test_unreadable_file_raises(tmp_path):
     p.write_bytes(b"not an image")
     with pytest.raises(Exception):
         load_png(str(p), max_px_w=800)
+
+
+from imgpopup.imageio import encode_tiles, open_image
+
+
+def test_tiles_cover_the_placement_exactly(tmp_path):
+    p = noise(tmp_path, "photo.png", (1200, 900))
+    img = open_image(str(p))
+    tiles = encode_tiles(img, (0, 0, 1200, 900), cols=257, rows=96, col=3, row=1, k=3)
+    assert len(tiles) == 9
+    cells = set()
+    for t in tiles:
+        for c in range(t.col, t.col + t.cols):
+            for r in range(t.row, t.row + t.rows):
+                assert (c, r) not in cells               # no overlap
+                cells.add((c, r))
+    assert cells == {(c, r) for c in range(3, 260) for r in range(1, 97)}
+
+
+def test_every_tile_is_under_budget_and_tiles_beat_one_png(tmp_path):
+    p = noise(tmp_path, "photo.png", (1600, 1200))
+    img = open_image(str(p))
+    tiles = encode_tiles(img, (0, 0, 1600, 1200), 200, 100, 0, 0, k=3, max_bytes=200_000)
+    assert all(len(t.png) <= 200_000 for t in tiles)
+    single, w, h = load_png(str(p), max_px_w=8000, max_bytes=200_000)
+    assert sum(t.width * t.height for t in tiles) > 3 * w * h
+
+
+def test_zoomed_view_encodes_only_the_crop(tmp_path):
+    p = noise(tmp_path, "photo.png", (1000, 1000))
+    img = open_image(str(p))
+    tiles = encode_tiles(img, (400, 400, 200, 200), 100, 50, 0, 0, k=2)
+    assert len(tiles) == 4
+    # 200x200 source at k=2 -> each tile ~100 px wide, never upscaled
+    assert all(t.width <= 101 for t in tiles)
+
+
+def test_tile_layers_are_stable_names(tmp_path):
+    p = write(tmp_path, "a.png", (64, 64))
+    tiles = encode_tiles(open_image(str(p)), (0, 0, 64, 64), 20, 10, 0, 0, k=2)
+    assert [t.layer for t in tiles] == ["img-0", "img-1", "img-2", "img-3"]

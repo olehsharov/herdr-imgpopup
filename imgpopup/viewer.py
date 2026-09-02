@@ -12,13 +12,12 @@ import tty
 from typing import Optional
 
 from . import api
-from .imageio import load_png
+from .geometry import tile_count
+from .imageio import encode_tiles, open_image
 from .state import ViewerState
 
 PLUGIN_ID = "imgpopup"
-LAYER = "img"
 POLL_SECONDS = 0.25
-CELL_PX_ESTIMATE = 8
 
 
 def state_dir() -> str:
@@ -51,8 +50,9 @@ class Viewer:
         self.cols, self.rows = api.pane_rect(pane_id)
         self.state = ViewerState(1, 1, self.cols, self.rows)
         self.path = None
-        self.png = None
+        self.img = None
         self.error = None
+        self.layers = 0
 
     def status(self, text: str) -> None:
         sys.stdout.write("\x1b[%d;1H\x1b[2K%s" % (self.rows, text[:self.cols - 1]))
@@ -61,25 +61,41 @@ class Viewer:
     def show(self, path: str) -> None:
         self.path = path
         try:
-            max_px = min(4096, max(64, self.cols * CELL_PX_ESTIMATE * 4))
-            self.png, width, height = load_png(path, max_px)
-            self.state.load(width, height)
+            self.img = open_image(path)
+            self.state.load(self.img.width, self.img.height)
             self.error = None
         except Exception as exc:                      # noqa: BLE001 - shown, not raised
             self.error = "cannot open %s: %s" % (os.path.basename(path), exc)
         self.draw()
 
+    def _clear_layers(self, start: int = 0) -> None:
+        for i in range(start, self.layers):
+            try:
+                api.graphics_clear(self.pane_id, "img-%d" % i)
+            except Exception:                          # noqa: BLE001 - best effort
+                pass
+        self.layers = min(self.layers, start)
+
     def draw(self) -> None:
         if self.error:
             self.status(self.error + "   q=close")
             return
-        cols, rows, col, row = self.state.placement()
+        st = self.state
+        view = st.view_rect()
+        cols, rows, col, row = st.placement()
+        k = tile_count(st.zoom)
+        tiles = encode_tiles(self.img, view, cols, rows, col, row, k)
         try:
-            api.graphics_set(self.pane_id, self.png, self.state.img_w,
-                             self.state.img_h, cols, rows, col, row, layer_id=LAYER)
-            self.status("%s  %dx%d  x%.2f   q close  +/- zoom  hjkl pan  0 fit"
-                        % (os.path.basename(self.path or "?"), self.state.img_w,
-                           self.state.img_h, self.state.zoom))
+            for t in tiles:
+                api.graphics_set(self.pane_id, t.png, t.width, t.height,
+                                 t.cols, t.rows, t.col, t.row, layer_id=t.layer)
+            self._clear_layers(len(tiles))
+            self.layers = len(tiles)
+            px = sum(t.width * t.height for t in tiles)
+            kb = sum(len(t.png) for t in tiles) // 1024
+            self.status("%s  %dx%d  x%.2f  %dx%d tiles %.1f Mpx %d KB   q close  +/- zoom  hjkl pan  0 fit"
+                        % (os.path.basename(self.path or "?"), st.img_w, st.img_h,
+                           st.zoom, k, k, px / 1e6, kb))
         except api.HerdrError as exc:
             hint = ""
             if "cell_size_unavailable" in str(exc):
@@ -113,10 +129,7 @@ class Viewer:
                         self.show(latest)
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, saved)
-            try:
-                api.graphics_clear(self.pane_id, LAYER)
-            except Exception:                          # noqa: BLE001 - teardown
-                pass
+            self._clear_layers(0)
             try:
                 os.unlink(os.path.join(state_dir(), "pane"))
             except OSError:

@@ -127,10 +127,15 @@ than a basename that has to be guessed against the pane's working directory.
 |---|---|---|---|
 | `+` `=` | zoom in | `h` `j` `k` `l` | pan |
 | `-` `_` | zoom out | `0` `f` | fit |
-| `q` `Esc` | close | `.` | 1:1 pixels |
+| `q` `Esc` | close | | |
 
 Only one viewer exists at a time. Showing another image swaps it in place,
 keeping the overlay where it is.
+
+Zoom is real, not a stretch: every redraw re-encodes just the visible region of the
+original and splits it into a k×k grid of layers (2×2 at fit, up to 4×4 zoomed in),
+each its own PNG under Herdr's 512 KiB-per-layer limit — so zooming in shows more
+pixels, and even the fit view carries 4× what a single layer could.
 
 ## Troubleshooting
 

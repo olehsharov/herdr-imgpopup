@@ -1,105 +1,97 @@
 from imgpopup.state import ViewerState
 
 
-def make(img_w=1000, img_h=500, cols=80, rows=40):
+def make(img_w=1000, img_h=500, cols=80, rows=41):
     return ViewerState(img_w, img_h, cols, rows)
 
 
-def test_starts_at_fit_zoom_one():
-    s = make()
-    assert s.zoom == 1.0
-    cols, rows, _, _ = s.placement()
+def test_fit_view_is_the_whole_image():
+    assert make().view_rect() == (0, 0, 1000, 500)
+
+
+def test_placement_is_fit_rect_centred_above_status_row():
+    cols, rows, col, row = make().placement()
     assert (cols, rows) == (80, 20)
+    assert col == 0 and row == (40 - 20) // 2
 
 
-def test_plus_zooms_in_and_asks_for_redraw():
+def test_placement_leaves_the_status_row():
+    s = make(100, 4000, cols=80, rows=41)          # very tall image
+    cols, rows, col, row = s.placement()
+    assert row + rows <= 40
+
+
+def test_zoom_in_halves_the_view_and_keeps_centre():
     s = make()
-    assert s.handle("+") == "redraw"
-    assert s.zoom > 1.0
+    for _ in range(3):
+        s.handle("+")                               # 1.25^3 = 1.95
+    x, y, w, h = s.view_rect()
+    assert w < 1000 and h < 500
+    assert abs((x + w / 2) - 500) <= 1 and abs((y + h / 2) - 250) <= 1
 
 
-def test_minus_zooms_out():
+def test_zoom_never_below_fit():
     s = make()
     s.handle("-")
-    assert s.zoom < 1.0
+    assert s.zoom == 1.0 and s.view_rect() == (0, 0, 1000, 500)
 
 
-def test_q_quits():
-    assert make().handle("q") == "quit"
-
-
-def test_escape_quits():
-    assert make().handle("\x1b") == "quit"
-
-
-def test_unknown_key_is_ignored():
+def test_zoom_caps():
     s = make()
-    assert s.handle("z") == "ignore"
-    assert s.zoom == 1.0
+    for _ in range(100):
+        s.handle("+")
+    assert s.zoom == 32.0
 
 
-def test_zero_resets_zoom_and_pan():
+def test_pan_moves_the_view_and_clamps_to_image():
+    s = make()
+    for _ in range(4):
+        s.handle("+")
+    x0, _, w, _ = s.view_rect()
+    s.handle("l")
+    x1, _, _, _ = s.view_rect()
+    assert x1 > x0
+    for _ in range(500):
+        s.handle("l")
+    x, _, w, _ = s.view_rect()
+    assert x + w == 1000                             # pinned to the right edge
+    for _ in range(500):
+        s.handle("k")
+    _, y, _, _ = s.view_rect()
+    assert y == 0
+
+
+def test_pan_at_fit_is_a_noop():
+    s = make()
+    s.handle("l")
+    s.handle("j")
+    assert s.view_rect() == (0, 0, 1000, 500)
+
+
+def test_view_never_leaves_the_image():
+    s = make(333, 777, cols=50, rows=30)
+    for k in "+++lllljjjjjkkkkhhhh":
+        s.handle(k)
+        x, y, w, h = s.view_rect()
+        assert 0 <= x and x + w <= 333 and 0 <= y and y + h <= 777
+
+
+def test_zero_and_f_reset():
     s = make()
     s.handle("+")
     s.handle("l")
-    s.handle("j")
-    s.handle("0")
-    assert s.zoom == 1.0 and s.pan_x == 0 and s.pan_y == 0
+    assert s.handle("0") == "redraw"
+    assert s.zoom == 1.0 and s.view_rect() == (0, 0, 1000, 500)
 
 
-def test_pan_is_clamped_at_fit():
-    s = make()
-    for _ in range(50):
-        s.handle("l")
-    cols, _, col, _ = s.placement()
-    assert col <= max(0, s.pane_cols - cols)
-
-
-def test_zoomed_in_image_can_pan_negative():
-    s = make()
-    for _ in range(8):
-        s.handle("+")            # image now much wider than the pane
-    for _ in range(20):
-        s.handle("l")            # scroll right
-    _, _, col, _ = s.placement()
-    assert col < 0
-
-
-def test_pan_cannot_push_image_off_pane():
-    s = make()
-    for _ in range(8):
-        s.handle("+")
-    for _ in range(999):
-        s.handle("l")
-    cols, _, col, _ = s.placement()
-    assert col >= s.pane_cols - cols
-
-
-def test_placement_preserves_aspect_across_zoom():
-    s = make(1000, 500)
-    c1, r1, _, _ = s.placement()
-    s.handle("+")
-    c2, r2, _, _ = s.placement()
-    assert abs((c1 / r1) - (c2 / r2)) < 0.15
+def test_quit_keys_and_ignored_keys():
+    assert make().handle("q") == "quit"
+    assert make().handle("\x1b") == "quit"
+    assert make().handle("z") == "ignore"
 
 
 def test_load_new_image_resets_view():
     s = make()
     s.handle("+")
-    s.handle("l")
     s.load(400, 400)
-    assert s.zoom == 1.0 and s.pan_x == 0 and s.pan_y == 0
-    assert s.img_w == 400
-
-
-def test_resize_updates_placement():
-    s = make()
-    s.resize(40, 20)
-    cols, rows, _, _ = s.placement()
-    assert cols <= 40 and rows <= 20
-
-
-def test_dot_switches_to_one_to_one():
-    s = make(1000, 500)
-    assert s.handle(".") == "redraw"
-    assert s.one_to_one is True
+    assert s.zoom == 1.0 and s.view_rect() == (0, 0, 400, 400)

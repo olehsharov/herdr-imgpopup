@@ -55,3 +55,22 @@ def test_encode_cap_never_upscales():
 
 def test_encode_cap_downscales_preserving_aspect():
     assert g.encode_cap(8000, 4000, popup_px_w=800, factor=4) == (3200, 1600)
+
+
+def test_split_cells_covers_exactly_with_near_equal_sizes():
+    spans = g.split_cells(257, 3)
+    assert spans == [(0, 86), (86, 86), (172, 85)]
+    assert sum(n for _, n in spans) == 257
+
+
+def test_split_cells_never_more_parts_than_cells():
+    assert g.split_cells(2, 4) == [(0, 1), (1, 1)]
+    assert g.split_cells(5, 1) == [(0, 5)]
+
+
+def test_tile_count_grows_with_zoom_and_caps():
+    assert g.tile_count(1.0) == 2
+    assert g.tile_count(1.9) == 2
+    assert g.tile_count(2.0) == 3
+    assert g.tile_count(4.0) == 4
+    assert g.tile_count(32.0) == 4
