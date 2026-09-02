@@ -84,11 +84,11 @@ class Viewer:
         view = st.view_rect()
         cols, rows, col, row = st.placement()
         k = tile_count(st.zoom)
-        tiles = encode_tiles(self.img, view, cols, rows, col, row, k)
+        def send(t):
+            api.graphics_set(self.pane_id, t.png, t.width, t.height,
+                             t.cols, t.rows, t.col, t.row, layer_id=t.layer)
         try:
-            for t in tiles:
-                api.graphics_set(self.pane_id, t.png, t.width, t.height,
-                                 t.cols, t.rows, t.col, t.row, layer_id=t.layer)
+            tiles = encode_tiles(self.img, view, cols, rows, col, row, k, sink=send)
             self._clear_layers(len(tiles))
             self.layers = len(tiles)
             px = sum(t.width * t.height for t in tiles)

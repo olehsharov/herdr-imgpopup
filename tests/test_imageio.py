@@ -122,3 +122,19 @@ def test_tile_layers_are_stable_names(tmp_path):
     p = write(tmp_path, "a.png", (64, 64))
     tiles = encode_tiles(open_image(str(p)), (0, 0, 64, 64), 20, 10, 0, 0, k=2)
     assert [t.layer for t in tiles] == ["img-0", "img-1", "img-2", "img-3"]
+
+
+def test_sink_receives_every_tile_as_it_is_encoded(tmp_path):
+    p = write(tmp_path, "a.png", (64, 64))
+    seen = []
+    tiles = encode_tiles(open_image(str(p)), (0, 0, 64, 64), 20, 10, 0, 0, k=2,
+                         sink=lambda t: seen.append(t.layer))
+    assert sorted(seen) == sorted(t.layer for t in tiles) == ["img-0", "img-1", "img-2", "img-3"]
+
+
+def test_sink_errors_propagate(tmp_path):
+    p = write(tmp_path, "a.png", (64, 64))
+    def boom(t):
+        raise RuntimeError("socket gone")
+    with pytest.raises(RuntimeError):
+        encode_tiles(open_image(str(p)), (0, 0, 64, 64), 20, 10, 0, 0, k=2, sink=boom)

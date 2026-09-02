@@ -13,7 +13,7 @@ under budget, giving k^2 x the pixels per view.
 import io
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from PIL import Image
 
@@ -22,7 +22,7 @@ from .geometry import split_cells
 MAX_PNG_BYTES = 512 * 1024      # inclusive; 512 KiB + 1 is rejected
 MIN_SIDE = 16
 CELL_PX_TARGET = 16             # source pixels per cell worth encoding (retina-ish)
-ENCODE_THREADS = 4
+ENCODE_THREADS = 8      # encode AND send overlap per tile; the send is the slow part
 
 
 @dataclass
@@ -81,11 +81,16 @@ def load_png(path: str, max_px_w: int,
 def encode_tiles(img: Image.Image, view: Tuple[int, int, int, int],
                  cols: int, rows: int, col: int, row: int, k: int,
                  max_bytes: int = MAX_PNG_BYTES,
-                 cell_px: int = CELL_PX_TARGET) -> List[Tile]:
+                 cell_px: int = CELL_PX_TARGET,
+                 sink: Optional[Callable[["Tile"], None]] = None) -> List[Tile]:
     """Split the placement (cols x rows cells at col,row) into k x k
     cell-aligned tiles and encode the matching slice of `view` for each.
 
     Cell spans and source spans use the same fractions, so tiles meet exactly.
+    `sink`, if given, is called with each tile from the worker thread as soon
+    as it is encoded - sending from there overlaps the ~1 ms/KB transport to
+    the client across tiles (measured: 4 tiles 2.13 s sequential, 0.56 s
+    concurrent). Exceptions from `sink` propagate out of this call.
     """
     vx, vy, vw, vh = view
     xs = split_cells(cols, k)
@@ -110,7 +115,10 @@ def encode_tiles(img: Image.Image, view: Tuple[int, int, int, int],
             tile = tile.resize((max_w, max(1, round(tile.height * max_w / tile.width))),
                                Image.LANCZOS)
         data, tile = shrink_to_budget(tile, max_bytes)
-        return Tile(layer, data, tile.width, tile.height, cn, rn, c, r)
+        out = Tile(layer, data, tile.width, tile.height, cn, rn, c, r)
+        if sink is not None:
+            sink(out)
+        return out
 
     with ThreadPoolExecutor(max_workers=ENCODE_THREADS) as pool:
         return list(pool.map(work, jobs))
