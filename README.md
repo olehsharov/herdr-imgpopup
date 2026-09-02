@@ -45,8 +45,27 @@ pixel rectangle, and every image is accepted and then silently not drawn.
 
 ## Use
 
-**From a shell** — click any image path in terminal output. The link handler
-matches `png jpg jpeg webp gif bmp tif tiff`.
+**From a shell**, the primary route:
+
+```bash
+img path/to/image.png
+```
+
+Create that shortcut once (the plugin root is wherever Herdr installed it):
+
+```bash
+printf '#!/bin/sh\nexec "$(herdr plugin list --json | python3 -c "import sys,json;print([p[\'plugin_root\'] for p in json.load(sys.stdin)[\'result\'][\'plugins\'] if p[\'plugin_id\']==\'imgpopup\'][0])")/cli.sh" show "$@"\n' > ~/.local/bin/img
+chmod +x ~/.local/bin/img
+```
+
+> **Clicking a path does not work on Herdr 0.8.2.** The plugin registers a
+> `[[link_handlers]]` entry, and Herdr accepts it, but nothing dispatches it:
+> bare paths are never highlighted, real OSC 8 hyperlinks are highlighted yet
+> inert, and no entry appears in the right-click menu. There is no modifier to
+> hold — Herdr exposes no URL-click modifier setting at all. The action itself is
+> fine (`herdr plugin action invoke show --plugin imgpopup` runs it and receives a
+> full context), so this plugin will work unchanged if link dispatch is wired up.
+> Until then, use `img` or an editor/agent that calls `cli.sh show`.
 
 **From the CLI**, which is also how an agent pushes you an image:
 
