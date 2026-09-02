@@ -61,7 +61,7 @@ class Viewer:
     def show(self, path: str) -> None:
         self.path = path
         try:
-            max_px = max(64, self.cols * CELL_PX_ESTIMATE * 4)
+            max_px = min(4096, max(64, self.cols * CELL_PX_ESTIMATE * 4))
             self.png, width, height = load_png(path, max_px)
             self.state.load(width, height)
             self.error = None
