@@ -86,7 +86,13 @@ kitty +open file:///path/on/the/box/image.png       # 2. open-actions -> overlay
 |---|---|
 | `file:///abs/path/img.png` | **ctrl+shift+click** |
 | a bare path `/abs/path/img.png` | **ctrl+shift+i**, then the hint letter |
+| `ls` output | use `lsi` (below) and ctrl+shift+click the URL it adds |
 | `file:///abs/path/clip.mp4` | **ctrl+shift+click** → mpv in a kitty overlay (untested) |
+
+**`ls` output:** Herdr strips OSC 8 hyperlinks when rendering a pane, so
+`ls --hyperlink` never reaches kitty. [`shell/lsi.sh`](shell/lsi.sh) defines `lsi`,
+an `ls -la` that appends a plain-text `file://` URL per image — those kitty does detect.
+On the Herdr box: `echo 'source ~/.config/herdr/plugins/.../shell/lsi.sh' >> ~/.bashrc`.
 
 Why ctrl+shift: Herdr captures the mouse, so plain/Cmd/Alt clicks go to the pane app;
 `ctrl+shift+click` is kitty's own "click the URL even though the app grabbed the mouse".
